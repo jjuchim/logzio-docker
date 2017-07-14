@@ -27,38 +27,37 @@ function start() {
     ]
   })
 
+  var logFunctionGenerator = function (parseFunction) {
+    return through.obj(function (log, _, callback) {
+      if(parseFunction) { log = parseFunction(log); }
+
+      logger.log('info', JSON.stringify(log))
+      callback()
+    })
+  };
+
   // Docker Logs
-  var logLogs = through.obj(function (log, _, callback) {
-    if(isJSON(log.line)){
+  var parseLog = function (log) {
+   if(isJSON(log.line)){
       log.line = JSON.parse(log.line)
       log = parseMessage(log)
     }else{
       log.message = log.line;
       delete log.line;
     }
-
-    logger.log('info', JSON.stringify(log));
-    callback()
-  });
+    return log;
+  };
 
   loghose = logFactory({events: events});
-  loghose.pipe(logLogs);
+  loghose.pipe(logFunctionGenerator(parseLog));
 
   // Docker Stats
-  var logStats = through.obj(function (stats, _, callback) {
-    logger.log('info', JSON.stringify(stats));
-    callback()
-  });
   dockerStatsSource = statsFactory({events: events, statsinterval: 30});
-  //dockerStatsSource.pipe(logStats);
+  dockerStatsSource.pipe(logFunctionGenerator());
 
   // Docker Events
-  var logEvents = through.obj(function (event, _, callback) {
-    logger.log('info', JSON.stringify(event));
-    callback()
-  });
   dockerEventSource = eventsFactory({});
-  //dockerEventSource.pipe(logEvents);
+  dockerEventSource.pipe(logFunctionGenerator());
 
   return loghose;
 };
