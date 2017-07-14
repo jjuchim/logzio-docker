@@ -20,7 +20,8 @@
     "dockerode": "2.4.3",
     "minimist": "1.2.0",
     "through2": "2.0.3",
-    "logzio-nodejs": "0.4.2",
-    "is-json": "2.0.1"
+    "is-json": "2.0.1",
+    "winston": "2.3.1",
+    "winston-logstash": "0.3.0"
   }
 }

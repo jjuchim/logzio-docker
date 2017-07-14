@@ -7,159 +7,83 @@ var minimist = require('minimist');
 var allContainers = require('docker-allcontainers');
 var statsFactory = require('docker-stats');
 var logFactory = require('docker-loghose');
-var os = require('os');
-var logzioLogger = require('logzio-nodejs');
-var isJSON = require('is-json');
 var eventsFactory = require('./docker-event-log');
+var winston = require('winston');
+var winstonLogstash = require('winston-logstash');
+var isJSON = require('is-json');
 
-var loggers = {};
-function getOrCreateLogger(type, opts) {
-    var logger = loggers[type];
-    if (!logger) {
-        var config = {
-            token: opts.token,
-            protocol: opts.secure ? 'https' : 'http',
-            type: type,
-            bufferSize: 1000,
-            host: opts.zone === 'eu' ? 'listener-eu.logz.io' : '' // US is the default value
-        }
+function start() {
+  var events = allContainers({});
+  var loghose;
+  var dockerStatsSource;
+  var dockerEventSource;
 
-        // Allow override to a specific logzio endpoint
-        if (opts.endpoint) {
-            config['host'] = opts.endpoint
-        }
-        console.log('Starting with config:')
-        console.log(config)
-        logger = logzioLogger.createLogger(config);
-        loggers[type] = logger;
-    }
-    return logger;
-}
+  var logger = new (winston.Logger) ({
+    transports: [
+      new (winston.transports.Console)({
+        level: 'debug',
+        formatter: function(options) { return options.message; }
+      })
+    ]
+  })
 
-function start(opts) {
-
-    var filter = through.obj(function (obj, enc, cb) {
-        addAll(opts.add, obj);
-
-        var type = 'docker-unknown';
-        if (obj.line) {
-            obj.message = obj.line
-            delete obj.line
-            if (isJSON(obj.message)) {
-              obj.logzio_codec = 'json';
-            }
-            else {
-              obj.logzio_codec = 'plain';
-            }
-            type = 'docker_logs';
-        }
-        else if (obj.type) {
-            obj.action_type = obj.type;
-            type = 'docker-events';
-        }
-        else if (obj.stats) {
-            type = 'docker-stats';
-        }
-        obj.host = os.hostname();
-
-        getOrCreateLogger(type, opts).log(obj);
-
-        cb()
-    });
-
-    var events = allContainers(opts);
-    var loghose;
-    var stats;
-    var dockerEvents;
-
-    opts.events = events;
-
-    if (opts.logs !== false && opts.token) {
-        loghose = logFactory(opts);
-        loghose.pipe(filter);
+  // Docker Logs
+  var logLogs = through.obj(function (log, _, callback) {
+    if(isJSON(log.line)){
+      log.line = JSON.parse(log.line)
+      log = parseMessage(log)
+    }else{
+      log.message = log.line;
+      delete log.line;
     }
 
-    if (opts.stats !== false && opts.token) {
-        stats = statsFactory(opts);
-        stats.pipe(filter);
-    }
+    logger.log('info', JSON.stringify(log));
+    callback()
+  });
 
-    if (opts.dockerEvents !== false && opts.token) {
-        dockerEvents = eventsFactory(opts);
-        dockerEvents.pipe(filter);
-    }
+  loghose = logFactory({events: events});
+  loghose.pipe(logLogs);
 
-    if (!stats && !loghose && !dockerEvents) {
-        throw new Error('Please enable one logging facility out of stats, logs or dockerEvents');
-    }
+  // Docker Stats
+  var logStats = through.obj(function (stats, _, callback) {
+    logger.log('info', JSON.stringify(stats));
+    callback()
+  });
+  dockerStatsSource = statsFactory({events: events, statsinterval: 30});
+  //dockerStatsSource.pipe(logStats);
 
+  // Docker Events
+  var logEvents = through.obj(function (event, _, callback) {
+    logger.log('info', JSON.stringify(event));
+    callback()
+  });
+  dockerEventSource = eventsFactory({});
+  //dockerEventSource.pipe(logEvents);
 
-    return loghose;
+  return loghose;
+};
 
-    function addAll(proto, obj) {
-        if (!proto) {
-            return;
-        }
+function parseMessage(msg) {
+  var renameField = function(obj, oldName, newName) {
+    obj[newName] = obj[oldName];
+    delete obj[oldName];
+    return obj
+  };
 
-        var key;
-        for (key in proto) {
-            if (proto.hasOwnProperty(key)) {
-                obj[key] = proto[key];
-            }
-        }
-    }
-}
-
-function cli() {
-    var argv = minimist(process.argv.slice(2), {
-        string: ['token', 'endpoint'],
-        alias: {
-            'token': 't',
-            'newline': 'n',
-            'statsinterval': 'i',
-            'add': 'a',
-            'zone': 'z'
-        },
-        default: {
-            newline: true,
-            stats: true,
-            logs: true,
-            dockerEvents: true,
-            statsinterval: 30,
-            secure: true,
-            add: ['host=' + os.hostname()],
-            token: process.env.LOGZIO_TOKEN,
-            zone: process.env.LOGZIO_ZONE
-        }
-    });
-
-    if (argv.help || !(argv.token)) {
-        console.log('Usage: docker-logzio [-t TOKEN] [--endpoint ENDPOINT]  [--no-newline]\n' +
-            '                         [--no-stats] [--no-logs] [--no-secure] [--no-dockerEvents]\n' +
-            '                         [-i STATSINTERVAL] [-a KEY=VALUE] [-z us|eu]\n' +
-            '                         [--matchByImage REGEXP] [--matchByName REGEXP]\n' +
-            '                         [--skipByImage REGEXP] [--skipByName REGEXP]\n' +
-            '                         [--help]');
-
-        process.exit(1);
-    }
-
-
-    if (argv.add && !Array.isArray(argv.add)) {
-        argv.add = [argv.add];
-    }
-
-    argv.add = argv.add.reduce(function (acc, arg) {
-        arg = arg.split('=');
-        acc[arg[0]] = arg[1];
-        return acc
-    }, {});
-
-    start(argv);
-}
+  var log = renameField(msg, 'line', 'message')
+  log.message = renameField(log.message, '_request.body', 'request_body')
+  log.message = renameField(log.message, '_request.status', 'status')
+  log.message = renameField(log.message, '_request.response-body', 'response_body')
+  log.message = renameField(log.message, '_request.method', 'method')
+  log.message = renameField(log.message, '_request.path', 'path')
+  log.message = renameField(log.message, '_request.params', 'params')
+  log.message = renameField(log.message, '_request.request_id', 'request_id')
+  log.message = renameField(log.message, '_request.request_ip', 'request_ip')
+  log.message = renameField(log.message, '_request.user_agent', 'user_agent')
+  log.message = renameField(log.message, '_request.duration', 'duration')
+  return log;
+};
 
 module.exports = start;
 
-if (require.main === module) {
-    cli();
-}
+if (require.main === module) { start(); }
