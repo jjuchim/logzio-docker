@@ -23,6 +23,10 @@ function start() {
       new (winston.transports.Console)({
         level: 'debug',
         formatter: function(options) { return options.message; }
+      }),
+      new (winston.transports.Logstash)({
+        port: process.env.LOGSTASH_PORT,
+        host: process.env.LOGSTASH_HOST
       })
     ]
   })
