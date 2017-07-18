@@ -25,7 +25,11 @@ function start() {
   })
 
   var log = through.obj(function (log, _, callback) {
-    logger.log('info', log)
+    if(typeof log == 'object'){
+      logger.log('info', JSON.stringify(log))
+    } else {
+      logger.log('info', log)
+    }
     callback()
   });
 
