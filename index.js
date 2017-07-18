@@ -8,6 +8,7 @@ var statsFactory = require('docker-stats');
 var logFactory = require('docker-loghose');
 var eventsFactory = require('./docker-event-log');
 var winston = require('winston');
+var winstonLogstash = require('./winston-logstash.js');
 
 function start() {
   var events = allContainers({});
@@ -17,9 +18,11 @@ function start() {
 
   var logger = new (winston.Logger) ({
     transports: [
-      new (winston.transports.Console)({
+      new (winston.transports.Logstash)({
         level: 'debug',
-        formatter: function(options) { return options.message; }
+        formatter: function(options) { return options.message; },
+        port: process.env.LOGSTASH_PORT,
+        host: process.env.LOGSTASH_HOST
       }),
     ]
   })
