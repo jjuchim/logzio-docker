@@ -18,16 +18,16 @@ function start() {
 
   var logger = new (winston.Logger) ({
     transports: [
-      new (winston.transports.Logstash)({
+      /*new (winston.transports.Logstash)({
         level: 'debug',
         formatter: function(options) { return options.message; },
         port: process.env.LOGSTASH_PORT,
         host: process.env.LOGSTASH_HOST
-      })
-      /*new (winston.transports.Console)({
+      })*/
+      new (winston.transports.Console)({
         level: 'debug',
         formatter: function(options) { return options.message; }
-      })*/
+      })
     ]
   })
   var parseLog = function(sourceType, version) {
@@ -72,5 +72,13 @@ function start() {
 };
 
 module.exports = start;
+
+process.on('SIGINT', function(){
+  process.exit()
+});
+
+process.on('SIGTERM', function() {
+  process.exit()
+})
 
 if (require.main === module) { start(); }
