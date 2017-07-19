@@ -39,7 +39,7 @@ function start() {
   });
 
   // Docker Logs
-  loghose = logFactory({events: events});
+  loghose = logFactory({events: events, newline: true});
   loghose
     .pipe(through.obj(function(message, _, callback) {
       if(isJSON(message.line)) {
