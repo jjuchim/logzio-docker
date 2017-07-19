@@ -9,6 +9,7 @@ var logFactory = require('docker-loghose');
 var eventsFactory = require('./docker-event-log');
 var winston = require('winston');
 var winstonLogstash = require('./winston-logstash.js');
+var isJSON = require('is-json');
 
 function start() {
   var events = allContainers({});
@@ -30,20 +31,6 @@ function start() {
       })*/
     ]
   })
-  var parseLog = function(sourceType, version) {
-    return through.obj(function (log, _, callback) {
-      if(typeof log == 'object') {
-        log.body = log.line
-        delete log.line
-      } else {
-        log = { line: log }
-      }
-
-      log.source = sourceType;
-      log.version = version;
-      return callback(null, log);
-    })
-  }
 
   var log = through.obj(function (log, _, callback) {
     logger.log('info', JSON.stringify(log))
@@ -53,19 +40,35 @@ function start() {
   // Docker Logs
   loghose = logFactory({events: events});
   loghose
-    .pipe(parseLog('docker-events', '1.0'))
+    .pipe(through.obj(function(message, _, callback) {
+      if(isJSON(message.line)) {
+        message.body = JSON.parse(message.line);
+        delete message.line;
+      }
+      message.source = 'docker-logs';
+      message.version = '1.0';
+      return callback(null, message);
+    }))
     .pipe(log);
 
   // Docker Stats
   dockerStatsSource = statsFactory({events: events, statsinterval: 30});
   dockerStatsSource
-    .pipe(parseLog('docker-stats', '1.0'))
+    .pipe(through.obj(function(message, _, callback) {
+      message.source = 'docker-stats';
+      message.version = '1.0';
+      return callback(null, message);
+    }))
     .pipe(log);
 
   // Docker Events
   dockerEventSource = eventsFactory({});
   dockerEventSource
-    .pipe(parseLog('docker-container-log', '1.0'))
+    .pipe(through.obj(function(message, _, callback) {
+      message.source = 'docker-events';
+      message.version = '1.0';
+      return callback(null, message);
+    }))
     .pipe(log);
 
   return loghose;
