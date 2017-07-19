@@ -43,8 +43,17 @@ function start() {
   loghose
     .pipe(through.obj(function(message, _, callback) {
       if(isJSON(message.line)) {
-        message.body = JSON.parse(message.line);
-        delete message.line;
+        try {
+          if(typeof message.line == 'string') {
+            message.body = JSON.parse(message.line);
+          } else {
+            message.body = message.line;
+          }
+
+          delete message.line;
+        } catch (e) {
+          message._parsed_error = e.toString();
+        }
       }
       message.source = 'docker-logs';
       message.version = '1.0';
