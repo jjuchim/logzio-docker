@@ -23,30 +23,50 @@ function start() {
         formatter: function(options) { return options.message; },
         port: process.env.LOGSTASH_PORT,
         host: process.env.LOGSTASH_HOST
-      }),
+      })
+      /*new (winston.transports.Console)({
+        level: 'debug',
+        formatter: function(options) { return options.message; }
+      })*/
     ]
   })
+  var parseLog = function(sourceType, version) {
+    return through.obj(function (log, _, callback) {
+      if(typeof log == 'object') {
+        log.body = log.line
+        delete log.line
+      } else {
+        log = { line: log }
+      }
+
+      log.source = sourceType;
+      log.version = version;
+      return callback(null, log);
+    })
+  }
 
   var log = through.obj(function (log, _, callback) {
-    if(typeof log == 'object'){
-      logger.log('info', JSON.stringify(log))
-    } else {
-      logger.log('info', log)
-    }
+    logger.log('info', JSON.stringify(log))
     callback()
   });
 
   // Docker Logs
   loghose = logFactory({events: events});
-  loghose.pipe(log);
+  loghose
+    .pipe(parseLog('docker-events', '1.0'))
+    .pipe(log);
 
   // Docker Stats
   dockerStatsSource = statsFactory({events: events, statsinterval: 30});
-  dockerStatsSource.pipe(log);
+  dockerStatsSource
+    .pipe(parseLog('docker-stats', '1.0'))
+    .pipe(log);
 
   // Docker Events
   dockerEventSource = eventsFactory({});
-  dockerEventSource.pipe(log);
+  dockerEventSource
+    .pipe(parseLog('docker-container-log', '1.0'))
+    .pipe(log);
 
   return loghose;
 };
