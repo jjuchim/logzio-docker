@@ -29,7 +29,8 @@ function start() {
         level: 'debug',
         formatter: function(options) { return options.message; }
       })*/
-    ]
+    ],
+    exitOnError: false
   })
 
   var log = through.obj(function (log, _, callback) {
